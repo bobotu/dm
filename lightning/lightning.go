@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pingcap/dm/pkg/terror"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/pingcap/dm/pkg/terror"
 
 	"github.com/pingcap/dm/dm/config"
 	"github.com/pingcap/dm/dm/pb"
 	"github.com/pingcap/dm/dm/unit"
 	tcontext "github.com/pingcap/dm/pkg/context"
 	"github.com/pingcap/dm/pkg/log"
+	"github.com/pingcap/tidb-lightning/lightning/common"
 	lightningConfig "github.com/pingcap/tidb-lightning/lightning/config"
 	"github.com/pingcap/tidb-lightning/lightning/mydump"
 	"github.com/pingcap/tidb-lightning/lightning/restore"
@@ -25,6 +27,7 @@ import (
 // Lightning is used to replace Loader.
 type Lightning struct {
 	rc     *restore.RestoreController
+	pauser *common.Pauser
 	mdl    *mydump.MDLoader
 	logCtx *tcontext.Context
 
@@ -41,6 +44,7 @@ func NewLightning(cfg *config.SubTaskConfig) *Lightning {
 		cfg:    cfg,
 		logCtx: logCtx,
 		ltnCfg: lightningCf,
+		pauser: common.NewPauser(),
 	}
 }
 
@@ -103,7 +107,7 @@ func (l *Lightning) Process(ctx context.Context, pr chan pb.ProcessResult) {
 	if web.DisplayCheckPointStatus() {
 		fmt.Println("current progress is empty")
 	}
-	procedure, err := restore.NewRestoreController(ctx, dbMetas, l.ltnCfg)
+	procedure, err := restore.NewRestoreControllerWithPauser(ctx, dbMetas, l.ltnCfg, l.pauser)
 	if err != nil {
 		l.logCtx.L().Error("create RestoreController failed", log.ShortError(err))
 		pr <- pb.ProcessResult{
@@ -131,12 +135,12 @@ func (l *Lightning) Close() {
 
 // Pause implements Unit.Pause
 func (l *Lightning) Pause() {
-
+	l.pauser.Pause()
 }
 
 // Resume implements Unit.Resume
 func (l *Lightning) Resume(ctx context.Context, pr chan pb.ProcessResult) {
-
+	l.pauser.Resume()
 }
 
 // Update implements Unit.Update
